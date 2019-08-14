@@ -5,8 +5,6 @@ import numpy as np
 from numpy import arctan, array, power
 import matplotlib.pyplot as plt
 
-u_obs = np.loadtxt(open("550.csv", "rb"), delimiter=',', skiprows=0)
-
 @dataclass
 class caseData:
     mesh : Mesh = Mesh()
@@ -22,7 +20,6 @@ class caseData:
     sigma            : float = 0.5
     sigmaStar        : float = 0.5
     gamma            : float = 5/9
-
 
 def meshGenerate(caseData):
     caseData.mesh = UnitIntervalMesh(198)

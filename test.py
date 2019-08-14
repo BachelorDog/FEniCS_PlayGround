@@ -1,63 +1,75 @@
-import matplotlib.pyplot as plt
-from dolfin import *;
-from mshr import *;
-import time
-import logging;
-logging.getLogger('FFC').setLevel(logging.WARNING)
+from __future__ import print_function
+from fenics import *
 
+T = 5.0            # final time
+num_steps = 50    # number of time steps
+dt = T / num_steps # time step size
+eps = 0.01         # diffusion coefficient
+K = 10.0           # reaction rate
 
-######## Important code begins here ########
+# Read mesh from file
+mesh = Mesh('navier_stokes_cylinder/cylinder.xml.gz')
 
-# Define domain and mesh
-XMIN, XMAX = -2., 2.;
-YMIN, YMAX = -2., 2.;
-G = [XMIN, XMAX, YMIN, YMAX];
-mresolution = 20;
-mesh = generate_mesh(Rectangle(Point(G[0], G[2]), Point(G[1], G[3])), mresolution)
+# Define function space for velocity
+W = VectorFunctionSpace(mesh, 'P', 2)
 
-# Define finite element function space
-degree = 1;
-V = FunctionSpace(mesh, "CG", degree);
+# Define function space for system of concentrations
+P1 = FiniteElement('P', triangle, 1)
+element = MixedElement([P1, P1, P1])
+V = FunctionSpace(mesh, element)
 
-# Finite element functions
-v = TestFunction(V);
-u = Function(V);
+# Define test functions
+v_1, v_2, v_3 = TestFunctions(V)
+u_1, u_2, u_3 = TrialFunctions(V)
 
-# Define boundary conditions
-def boundary(x, on_boundary):
-    return on_boundary
+# Define functions for velocity and concentrations
+w = Function(W)
+u_n = Function(V)
 
-# Time parameters
-theta = 1.0 # Implicit Euler
-k = 0.5; # Time step
-t, T = 0., 20.; # Start and end time
+# Split system functions to access components
+u_n1, u_n2, u_n3 = split(u_n)
 
-# Exact solution
-k_coeff = 1
-ue = Expression("exp(-(x[0]*x[0]+x[1]*x[1])/(4*a*t))/(4*pi*a*t)", degree=2, a=k_coeff, t=1e-7, domain=mesh)
-u0 = ue;
+# Define source terms
+f_1 = Expression('pow(x[0]-0.1,2)+pow(x[1]-0.1,2)<0.05*0.05 ? 0.1 : 0',
+                 degree=1)
+f_2 = Expression('pow(x[0]-0.1,2)+pow(x[1]-0.3,2)<0.05*0.05 ? 0.1 : 0',
+                 degree=1)
+f_3 = Constant(0)
 
-bc = DirichletBC(V, ue, boundary)
+# Define expressions used in variational forms
+k = Constant(dt)
+K = Constant(K)
+eps = Constant(eps)
 
-# Inititalize time stepping
-pl, ax = plt.subplots();
-stepcounter = 0;
-timer0 = time.clock()
+# Define variational problem
+F = ((u_1 - u_n1) / k)*v_1*dx + dot(w, grad(u_1))*v_1*dx \
+  + eps*dot(grad(u_1), grad(v_1))*dx + K*u_1*u_2*v_1*dx  \
+  + ((u_2 - u_n2) / k)*v_2*dx + dot(w, grad(u_2))*v_2*dx \
+  + eps*dot(grad(u_2), grad(v_2))*dx + K*u_1*u_2*v_2*dx  \
+  + ((u_3 - u_n3) / k)*v_3*dx + dot(w, grad(u_3))*v_3*dx \
+  + eps*dot(grad(u_3), grad(v_3))*dx - K*u_1*u_2*v_3*dx + K*u_3*v_3*dx \
+  - f_1*v_1*dx - f_2*v_2*dx - f_3*v_3*dx
 
-# Time-stepping loop
-while t < T:
-    # Time scheme
-    um = theta*u + (1.0-theta)*u0
+a = lhs(F)
+L = rhs(F)
 
-    # Weak form of the heat equation in residual form
-    r = (u - u0)/k*v*dx + k_coeff*inner(grad(um), grad(v))*dx
+# Create time series for reading velocity data
+timeseries_w = TimeSeries('navier_stokes_cylinder/velocity_series')
 
-    # Solve the Heat equation (one timestep)
-    solve(r==0, u, bc)
+# Time-stepping
+t = 0
+for n in range(num_steps):
 
-    # Shift to next timestep
-    t += k; u0 = project(u, V);
-    ue.t = t;
-    stepcounter += 1
+    # Update current time
+    t += dt
 
-print("elapsed CPU time: ", (time.clock() - timer0))
+    # Read velocity from file
+    timeseries_w.retrieve(w.vector(), t)
+
+    # Solve variational problem for time step
+
+    u_ = Function(V)
+    solve(a == L, u_)
+
+    # Update previous solution
+    u_n.assign(u_)
