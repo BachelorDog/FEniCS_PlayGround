@@ -40,30 +40,30 @@ def wboundary(x, on_boundary):
     return on_boundary or near(x[0], -1, tol) or near(x[0], 1, tol)
 
 V = FunctionSpace(channelFlow.mesh, 'CG', 2)
+u_trial = TrialFunction(V)
 u_test = TestFunction(V)
-u = TrialFunction(V)
 u_n = Function(V)
-u_ = project(Expression("0.0", degree = 1), V)
+u_ = Function(V)
+
+k_trial = TrialFunction(V)
+k_test = TestFunction(V)
+k_n = Function(V)
+k_ = Function(V)
+
+w_trial = TrialFunction(V)
+w_test = TestFunction(V)
+w_n = Function(V)
+w_ = Function(V)
+
+u_n = project(Expression("0.0", degree = 1), V)
+k_n = project(Expression("1e-7", degree = 1), V)
+w_n = project(Expression("32000", degree = 1), V)
+
 nut = Function(V)
 
-P = FiniteElement('CG', interval, 2)
-element = MixedElement([P, P])
-T = FunctionSpace(channelFlow.mesh, element)
 
-k_test, w_test = TestFunctions(T)
-k, w = TrialFunctions(T)
-
-T_n = Function(T)
-k_n, w_n = T_n.split()
-T_ = project(Expression(("1e-7", "32000"), degree = 1), T)
-k_, w_ = T_.split()
-
-yEpsilon = project(Constant("1.0"), V)
 #control = Control(yEpsilon)
-
-dt = 0.01
 relax = 0.6
-delta = Constant(dt)
 
 gradP = Constant(channelFlow.frictionVelocity**2)
 
@@ -74,54 +74,43 @@ sigma = Constant(channelFlow.sigma)
 sigmaStar = Constant(channelFlow.sigmaStar)
 gamma = Constant(channelFlow.gamma)
 control = Control(gamma)
+yEpsilon = project(Constant("1.0"), V)
 
 bc_u = DirichletBC(V, Constant(0.0), boundary)
-bc_k = DirichletBC(T.sub(0), Constant(0.0), boundary)
-bc_w = DirichletBC(T.sub(1), Expression("min(2.352e14,  6*mu/(beta*pow(abs(x[0])-1, 2)))", degree = 1, mu = channelFlow.mu, beta = channelFlow.beta), wboundary)
+bc_k = DirichletBC(V, Constant(0.0), boundary)
+bc_w = DirichletBC(V, Expression("min(2.352e14,  6*mu/(beta*pow(abs(x[0])-1, 2)))", degree = 1, mu = channelFlow.mu, beta = channelFlow.beta), wboundary)
 
-F1 = (mu+k_/w_)*dot(grad(u), grad(u_test))*dx - gradP*u_test*dx
-
-F2 = (k_/w_)*dot(dot(grad(u_), grad(u_)), k_test)*dx - betaStar*k*w_*k_test*dx - (mu + sigmaStar*k_/w_)*dot(grad(k), grad(k_test))*dx + (mu + sigmaStar*k_/w_)*dot(grad(k), (k_test*n))*ds
-F3 = gamma*yEpsilon*dot(dot(grad(u_), grad(u_)), w_test)*dx - beta*w*w_*w_test*dx - (mu + sigma*k_/w_)*dot(grad(w), grad(w_test))*dx + (mu + sigma*k_/w_)*dot(grad(w), (w_test*n))*ds
-
-F = F2 + F3
+F1 = (mu+k_n/w_n)*dot(grad(u_trial), grad(u_test))*dx - gradP*u_test*dx
+F2 = (k_n/w_n)*dot(dot(grad(u_n), grad(u_n)), k_test)*dx - betaStar*k_n*w_n*k_test*dx - (mu + sigmaStar*k_n/w_n)*dot(grad(k_trial), grad(k_test))*dx + (mu + sigmaStar*k_n/w_n)*dot(grad(k_trial), (k_test*n))*ds
+F3 = gamma*dot(dot(grad(u_n), grad(u_n)), w_test)*dx - beta*w_n*w_n*w_test*dx - (mu + sigma*k_n/w_n)*dot(grad(w_trial), grad(w_test))*dx + (mu + sigma*k_n/w_n)*dot(grad(w_trial), (w_test*n))*ds
 
 a1 = lhs(F1)
 L1 = rhs(F1)
 
-a2 = lhs(F)
-L2 = rhs(F)
+a2 = lhs(F2)
+L2 = rhs(F2)
 
-for i in range(50):
-    A1 = assemble(a1)
-    bc_u.apply(A1)
+a3 = lhs(F3)
+L3 = rhs(F3)
 
-    b1 = assemble(L1)
-    bc_u.apply(b1)
+for i in range(10):
+    solve(a1 == L1, u_, bc_u)
+    plot(u_)
+    plt.show()
+    u_n.assign((1-relax)*u_ + relax*u_n)
 
-    res = residual(A1, u_.vector(), b1)
-    if res < 1e-5 and i > 10:
-        plot(u_)
-        plt.show()
-        break
+    solve(a3 == L3, w_, bc_w)
+    plot(w_)
+    plt.show()
+    #w_n.assign((1-relax)*w_ + relax*w_n)
 
-    solve(A1, u_n.vector(), b1)
-    u_.vector()[:] = relax*u_.vector()[:] + (1-relax)*u_n.vector()[:]
+    solve(a2 == L2, k_, bc_k)
+    plot(k_)
+    plt.show()
+    k_n.assign((1-relax)*k_ + relax*k_n)
 
-    for j in range(20):
-        A2 = assemble(a2)
-        bc_k.apply(A2)
-        bc_w.apply(A2)
-    
-        b2 = assemble(L2)
-        bc_k.apply(b2)
-        bc_w.apply(b2)
+    nut = project(k_/w_, V)
 
-        solve(A2, T_n.vector(), b2)
-        T_.vector()[:] = relax*T_.vector()[:] + (1-relax)*T_n.vector()[:]
-        k_, w_ = T_.split()
-    
-        nut = project(k_/w_, V)
 
 #J = assemble(dot(u, u)*dx)
 #dJdEpsilon = compute_gradient(J, control)

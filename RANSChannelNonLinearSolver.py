@@ -53,9 +53,9 @@ u_test, k_test, w_test = TestFunctions(T)
 u, k, w = TrialFunctions(T)
 
 T_n = Function(T)
-u_n, k_n, w_n = T_n.split()
+u_n, k_n, w_n = split(T_n)
 T_ = project(Expression(("0.0", "1e-7", "32000"), degree = 1), T)
-u_, k_, w_ = T_.split()
+u_, k_, w_ = split(T_)
 
 relax = 0.6
 
@@ -67,8 +67,9 @@ betaStar = Constant(channelFlow.betaStar)
 sigma = Constant(channelFlow.sigma)
 sigmaStar = Constant(channelFlow.sigmaStar)
 gamma = Constant(channelFlow.gamma)
+yEpsilon = project(Expression("1.0", name='Control', degree=1), V)
 
-control = Control(mu)
+control = Control(yEpsilon)
 
 bc_u = DirichletBC(T.sub(0), Constant(0.0), boundary)
 bc_k = DirichletBC(T.sub(1), Constant(0.0), boundary)
@@ -77,23 +78,24 @@ bc = [bc_u, bc_k, bc_w]
 
 F1 = (mu+k_/w_)*dot(grad(u), grad(u_test))*dx - gradP*u_test*dx
 F2 = (k_/w_)*dot(dot(grad(u_), grad(u_)), k_test)*dx - betaStar*k*w_*k_test*dx - (mu + sigmaStar*k_/w_)*dot(grad(k), grad(k_test))*dx + (mu + sigmaStar*k_/w_)*dot(grad(k), (k_test*n))*ds
-F3 = gamma*dot(dot(grad(u_), grad(u_)), w_test)*dx - beta*w*w_*w_test*dx - (mu + sigma*k_/w_)*dot(grad(w), grad(w_test))*dx + (mu + sigma*k_/w_)*dot(grad(w), (w_test*n))*ds
+F3 = yEpsilon*gamma*dot(dot(grad(u_), grad(u_)), w_test)*dx - beta*w*w_*w_test*dx - (mu + sigma*k_/w_)*dot(grad(w), grad(w_test))*dx + (mu + sigma*k_/w_)*dot(grad(w), (w_test*n))*ds
 
 F = F1 + F2 + F3
 
 a = lhs(F)
 L = rhs(F)
 
-for i in range(5):
+for i in range(10):
     solve(a == L, T_n, bc)
-    u_n, k_n, w_n = T_n.split()
-    T_.vector()[:] = 0.6*T_.vector()[:] + 0.4*T_n.vector()[:]
-    u_, k_, w_ = T_.split()
+    T_.assign(project(Expression(("0.6*u_+0.4*u_n","0.6*k_+0.4*k_n","0.6*w_+0.4*w_n"), degree=1, u_n=T_n.sub(0), k_n=T_n.sub(1), w_n=T_n.sub(2), u_=T_.sub(0), k_=T_.sub(1), w_=T_.sub(2)), T))
 
     update = project(u_n-u_, V)
     error = np.linalg.norm(update.vector().get_local())
     if error < 1e-6:
         break
-    
-J = assemble(dot(u_, u_)*dx)
-dJdgamma = compute_gradient(J, control)
+
+plot(u_)
+plt.show()
+J = assemble(inner(u_, u_)*dx)
+dJdEpsilon = compute_gradient(J, control)
+
