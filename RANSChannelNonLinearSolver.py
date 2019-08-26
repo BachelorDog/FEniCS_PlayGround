@@ -85,17 +85,19 @@ F = F1 + F2 + F3
 a = lhs(F)
 L = rhs(F)
 
-for i in range(10):
+for i in range(200):
     solve(a == L, T_n, bc)
-    T_.assign(project(Expression(("0.6*u_+0.4*u_n","0.6*k_+0.4*k_n","0.6*w_+0.4*w_n"), degree=1, u_n=T_n.sub(0), k_n=T_n.sub(1), w_n=T_n.sub(2), u_=T_.sub(0), k_=T_.sub(1), w_=T_.sub(2)), T))
+    T_.assign(project(as_vector((0.8*u_+0.2*u_n, 0.8*k_+0.2*k_n, 0.8*w_+0.2*w_n)), T))
 
-    update = project(u_n-u_, V)
-    error = np.linalg.norm(update.vector().get_local())
-    if error < 1e-6:
-        break
+    # update = project(u_n-u_, V)
+    # error = np.linalg.norm(update.vector().get_local())
+    # if error < 1e-6:
+    #     break
 
 plot(u_)
 plt.show()
 J = assemble(inner(u_, u_)*dx)
 dJdEpsilon = compute_gradient(J, control)
+plot(dJdEpsilon)
+plt.show()
 
